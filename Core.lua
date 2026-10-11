@@ -199,6 +199,19 @@ local function refreshLines()
 end
 local vignetteStrength=0
 local motionBandExcess=0
+-- The preview countdown belongs to a Frame, never a FontString OnUpdate handler.
+local previewFrame=CreateFrame("Frame",nil,UIParent)
+previewFrame:SetFrameStrata("TOOLTIP")
+previewFrame:SetSize(280,130)
+previewFrame:SetPoint("CENTER",UIParent,"CENTER",0,105)
+previewFrame:EnableMouse(false)
+local previewNumber=previewFrame:CreateFontString(nil,"OVERLAY","GameFontNormalHuge")
+previewNumber:SetPoint("CENTER",previewFrame,"CENTER",0,0)
+previewNumber:SetTextColor(1,0.9,0.4,1)
+local previewCaption=previewFrame:CreateFontString(nil,"OVERLAY","GameFontNormal")
+previewCaption:SetPoint("TOP",previewNumber,"BOTTOM",0,-8)
+previewCaption:SetText("Darkening test")
+previewFrame:Hide()
 local function refreshVignette()
   for _,t in ipairs(vignetteElements) do t:Hide() end
   if not config or not config.enabled then return end
@@ -352,15 +365,17 @@ local function makeWindow()
   check(p,"Turn/mouse-look protection",12,-208,function()return config.dynamic.enabled end,function(v)config.dynamic.enabled=v end,"Triggered only if the Forever client fires documented looking/turning events. Does not read actual camera rotation.")
   slider(p,"Turn protection",22,-254,0.05,1.6,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
   button(p,"Test darkening (5 sec)",22,-305,195,25,function()
-    -- Use the frame's elapsed time, not GetTime (which may be missing or restricted).
-    -- Preview the configured strengths even when movement detection is unavailable.
+    -- Preview exactly the configured strengths, without a forced minimum.
+    -- Apply both strengths together as though moving and turning simultaneously.
     SV.testMotionRemaining=5
-    SV.testMotionLevel=math.max(config.movement.alpha or 0.3,config.dynamic.alpha or 0.3,1.2)
-    local testExcess=math.max(0,SV.testMotionLevel-1)
+    SV.testMotionLevel=clamp((config.movement.alpha or 0)+(config.dynamic.alpha or 0),0,1.6)
+    SV.testMotionBand=math.max(0,(config.movement.alpha or 0)-1,(config.dynamic.alpha or 0)-1)
     vignetteStrength=SV.testMotionLevel
-    motionBandExcess=testExcess
+    motionBandExcess=SV.testMotionBand
+    previewNumber:SetText("5")
+    previewFrame:Show()
     refreshVignette()
-    report("Movement darkening preview active for five seconds")
+    report("Previewing configured movement + turn strengths for five seconds")
   end)
   textLine(p,"Strength 1.6 is scaled to display opacity; camera turning requires client events. /sv status",16,-345,610)
   p=pages[5];title(p,"Camera Options (experimental)",-8)
@@ -499,23 +514,33 @@ SV:RegisterEvent("PLAYER_STARTED_LOOKING");SV:RegisterEvent("PLAYER_STOPPED_LOOK
 SV:RegisterEvent("DISPLAY_SIZE_CHANGED");SV:RegisterEvent("UI_SCALE_CHANGED")
 SV:SetScript("OnUpdate",function(_,dt)
   if not config then return end
+  -- Track real elapsed frame time so that five seconds means five seconds.
+  if (SV.testMotionRemaining or 0)>0 then
+    SV.testMotionRemaining=math.max(0,SV.testMotionRemaining-dt)
+    if SV.testMotionRemaining>0 then
+      previewNumber:SetText(tostring(math.ceil(SV.testMotionRemaining)))
+    else
+      previewNumber:SetText("0")
+      previewFrame:Hide()
+    end
+  end
   elapsed=elapsed+dt
   if elapsed<0.1 then return end
   elapsed=0
   local target=0
   local desiredBandExcess=0
-  if (SV.testMotionRemaining or 0)>0 then
-    SV.testMotionRemaining=math.max(0,SV.testMotionRemaining-0.1)
-    target=SV.testMotionLevel or 1.2
-    desiredBandExcess=math.max(0,target-1)
+  local previewActive=(SV.testMotionRemaining or 0)>0
+  if previewActive then
+    target=SV.testMotionLevel or 0
+    desiredBandExcess=SV.testMotionBand or 0
   end
-  if config.enabled and config.movement.enabled then
+  if not previewActive and config.enabled and config.movement.enabled then
     local speed=0
     local haveSpeed=false
     if type(GetUnitSpeed)=="function" then local ok,s=pcall(GetUnitSpeed,"player");if ok and type(s)=="number" then speed=s;haveSpeed=true end end
     if speed>=config.movement.threshold or (moving and (not haveSpeed or config.movement.threshold<=1)) then target=target+config.movement.alpha;desiredBandExcess=math.max(desiredBandExcess,config.movement.alpha-1) end
   end
-  if config.enabled and config.dynamic.enabled and (turning or looking) then target=target+config.dynamic.alpha;desiredBandExcess=math.max(desiredBandExcess,config.dynamic.alpha-1) end
+  if not previewActive and config.enabled and config.dynamic.enabled and (turning or looking) then target=target+config.dynamic.alpha;desiredBandExcess=math.max(desiredBandExcess,config.dynamic.alpha-1) end
   target=clamp(target,0,1.6)
   local nextValue=vignetteStrength+(target-vignetteStrength)*clamp(0.1/math.max(config.dynamic.fade,0.1),0,1)
   local smoothing=clamp(0.1/math.max(config.dynamic.fade,0.1),0,1)
