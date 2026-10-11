@@ -1,31 +1,24 @@
 # SteadyView for WoW: Forever
 
-SteadyView is an experimental, modular motion-comfort addon for **WoW: Forever**.
+Version 0.1.2-beta.
 
-## Features (v0.1.1 beta)
+## Installation
+Extract the SteadyView directory into the WoW: Forever Interface/AddOns directory. Enter `/steadyview` to open settings or `/steadyview edit` to edit dots.
 
-- Randomized reference dots with configurable count, size, opacity, color, and screen regions
-- On-screen dot editor for manual adjustment
-- Optional center focus marker and screen-edge reference lines
-- Configurable peripheral darkening and movement-responsive overlays
-- Experimental camera comfort settings (client support varies)
-- Optional profiles and settings
+## Changes
+- Dot size now scales from 2 to 100 interface pixels.
+- Dot edge band and margin use the configured allowed regions and regenerate random dots when changed. Edge band sets the zone inward from the display edge; margin is the excluded outermost area.
+- Manual editing saves each dot position by its current index and accounts for UIParent coordinates.
+- Reference line thickness now scales up to 120 interface pixels, with line inset 0–45% and three selectable colors.
+- Movement effect test button provides a 5-second visible test; actual movement uses GetUnitSpeed and the chosen threshold.
+- Camera settings show status; unavailable CVars are reported as unsupported. Client-specific camera support cannot be guaranteed.
 
-## Install
+## Diagnostic
+Enter `/sv status` in chat to view speed and camera status. Restart WoW after replacing the entire addon directory.
 
-1. Download the v0.1.1 beta ZIP.
-2. Extract the `SteadyView` folder into your WoW: Forever `Interface/AddOns` directory.
-3. Enter `/steadyview` in game. Use `/steadyview edit` for dot placement.
-
-## Important
-
-This repository currently contains documentation only. **The addon source files have not yet been pushed to GitHub.** Do not treat the repository as an installable release until `Core.lua` and `SteadyView.toc` are present.
-
-WoW: Forever compatibility still requires in-game testing. This addon is not medical treatment.
-
-## Planned improvements
-
-- Improved drag-and-drop reference dot editing
-- User-defined protected UI areas
-- More robust settings export/import
-- Client compatibility testing and automated source checks
+## Limitations
+- This beta has not been run in the actual WoW: Forever game client.
+- Camera movement detection requires the corresponding game events.
+- Custom protected UI zones are not yet editable; only predefined exclusions are used for randomization.
+- Compact backup does not include all settings.
+- Visual comfort is individual; stop playing if symptoms develop.
