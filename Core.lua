@@ -396,18 +396,60 @@ local function makeWindow()
   textLine(p,"Unsupported settings are never forced. Check your WoW camera options too.",16,-365,610)
   p=pages[6];title(p,"Profiles and Backup",-8)
   textLine(p,"Save named profiles and copy a backup. Beta SavedVariables may not reload reliably.",16,-35,600)
-  local name=CreateFrame("EditBox",nil,p,"InputBoxTemplate");name:SetSize(180,25);name:SetPoint("TOPLEFT",p,"TOPLEFT",28,-76);name:SetAutoFocus(false);name:SetText(config.profile or "Default")
-  button(p,"Save profile",220,-77,105,25,function()
-    local n=name:GetText();if n=="" then return end
-    config.profile=n;config.profiles[n]={dots=copy(config.dots),focus=copy(config.focus),lines=copy(config.lines),vignette=copy(config.vignette),movement=copy(config.movement),dynamic=copy(config.dynamic),camera=copy(config.camera)};save();report("Saved profile: "..n)
+  -- Separate profile name input from the profile selector. Only existing profiles appear in the dropdown.
+  local name=CreateFrame("EditBox",nil,p,"InputBoxTemplate");name:SetSize(175,25);name:SetPoint("TOPLEFT",p,"TOPLEFT",28,-70);name:SetAutoFocus(false);name:SetText(config.profile or "Default")
+  textLine(p,"Name for saving:",22,-53,190)
+  local selectedProfile=config.profiles[config.profile] and config.profile or nil
+  local profileDrop=button(p,"Choose saved profile  v",220,-70,205,25,function() end)
+  local popup=CreateFrame("Frame",nil,p,"BackdropTemplate")
+  popup:SetSize(205,242);popup:SetPoint("TOPLEFT",profileDrop,"BOTTOMLEFT",0,-2)
+  popup:SetFrameStrata("FULLSCREEN_DIALOG");popup:EnableMouse(true);panel(popup);popup:Hide()
+  local offset=0
+  local options={}
+  local function getProfileNames()
+    local names={}
+    for k,v in pairs(config.profiles) do if type(k)=="string" and type(v)=="table" then names[#names+1]=k end end
+    table.sort(names)
+    return names
+  end
+  local function updateDrop()
+    local names=getProfileNames()
+    if selectedProfile and not config.profiles[selectedProfile] then selectedProfile=nil end
+    profileDrop:SetText((selectedProfile or "Choose saved profile").."  v")
+    offset=clamp(offset,0,math.max(0,#names-7))
+    for i,b in ipairs(options) do
+      local profileName=names[offset+i]
+      if profileName then
+        b:SetText(profileName);b:Show()
+        b:SetScript("OnClick",function()
+          selectedProfile=profileName;name:SetText(profileName);popup:Hide();updateDrop()
+        end)
+      else b:Hide() end
+    end
+  end
+  for i=1,7 do options[i]=button(popup,"",8,-8-(i-1)*29,189,26,function() end) end
+  local prev=button(popup,"Up",8,-213,92,23,function()offset=math.max(0,offset-7);updateDrop() end)
+  local nextPage=button(popup,"Down",105,-213,92,23,function()offset=offset+7;updateDrop() end)
+  profileDrop:SetScript("OnClick",function() if popup:IsShown() then popup:Hide() else updateDrop();popup:Show() end end)
+  button(p,"Save profile",435,-70,100,25,function()
+    local n=name:GetText();if n=="" then report("Enter a profile name first");return end
+    config.profile=n;config.profiles[n]={dots=copy(config.dots),focus=copy(config.focus),lines=copy(config.lines),vignette=copy(config.vignette),movement=copy(config.movement),dynamic=copy(config.dynamic),camera=copy(config.camera)}
+    selectedProfile=n;save();updateDrop();report("Saved profile: "..n)
   end)
-  button(p,"Load profile",330,-77,105,25,function()
-    local n=name:GetText();local d=config.profiles[n];if not d then report("Profile not found: "..n);return end
-    for k,v in pairs(d) do config[k]=copy(v) end;config.profile=n;
+  button(p,"Load selected",220,-103,125,25,function()
+    local n=selectedProfile;local d=n and config.profiles[n]
+    if not d then report("Choose a saved profile from the dropdown first");return end
+    for k,v in pairs(d) do config[k]=copy(v) end;config.profile=n
     if type(config.lines.edges)~="table" then config.lines.edges=copy(defaults.lines.edges) end
-    refreshAll();report("Loaded profile: "..n.." (reopen options to update displayed sliders)")
+    popup:Hide();refreshAll();report("Loaded profile: "..n..". Reopen settings to refresh displayed controls.")
+    window:Hide();window=nil;makeWindow();window:Show()
   end)
-  button(p,"Reset all",440,-77,105,25,function()for k,v in pairs(defaults) do if k~="profiles" then config[k]=copy(v) end end;refreshAll();report("Reset to defaults") end)
+  button(p,"Reset all",355,-103,100,25,function()
+    for k,v in pairs(defaults) do if k~="profiles" then config[k]=copy(v) end end
+    popup:Hide();refreshAll();report("Reset to defaults")
+    window:Hide();window=nil;makeWindow();window:Show()
+  end)
+  updateDrop()
   local backup=CreateFrame("EditBox",nil,p,"InputBoxTemplate");backup:SetSize(580,25);backup:SetPoint("TOPLEFT",p,"TOPLEFT",30,-153);backup:SetAutoFocus(false)
   backup:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
   textLine(p,"Portable backup string (copy/paste):",22,-127,530)
