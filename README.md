@@ -1,6 +1,6 @@
 # SteadyView for WoW: Forever
 
-Version 0.1.2-beta.
+Version 0.1.3-beta.
 
 ## Installation
 Extract the SteadyView directory into the WoW: Forever Interface/AddOns directory. Enter `/steadyview` to open settings or `/steadyview edit` to edit dots.
