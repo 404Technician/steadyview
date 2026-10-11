@@ -5,12 +5,12 @@ local SV = CreateFrame("Frame", "SteadyViewController", UIParent)
 local config, overlays, window, editor, widgets = nil, {}, nil, nil, {}
 local defaults = {
   enabled=true,
-  dots={enabled=true,count=12,size=5,alpha=0.65,color={1,1,1},regions={top=true,bottom=true,left=true,right=true},band=20,margin=4,mode="random-adjust",points={},protected={},},
+  dots={enabled=true,count=12,size=12,alpha=0.65,color={1,1,1},regions={top=true,bottom=true,left=true,right=true},band=20,margin=4,mode="random-adjust",points={},protected={},},
   focus={enabled=false,size=13,alpha=0.65,color={1,1,1},shape="ring",offsetX=0,offsetY=0},
-  lines={enabled=false,alpha=0.35,size=2,position="sides",inset=12,color={1,1,1}},
+  lines={enabled=false,alpha=0.35,size=8,position="sides",inset=12,color={1,1,1}},
   vignette={enabled=false,alpha=0.25,width=16},
-  movement={enabled=false,threshold=7,alpha=0.15},
-  dynamic={enabled=false,alpha=0.10,fade=0.25},
+  movement={enabled=false,threshold=1,alpha=0.30},
+  dynamic={enabled=false,alpha=0.30,fade=0.25},
   camera={enabled=false,settings={}},
   profile="Default",profiles={},
 }
@@ -36,13 +36,14 @@ local function safeCVarSet(k,v)
   return false
 end
 local cameraOptions={
-  {key="cameraShake",label="Reduce camera shake",cvar="cameraShake",value="0",help="Attempts to reduce camera shake. Only applied if this client exposes the CVar."},
+  {key="cameraShake",label="Reduce camera shake",cvar="ShakeStrengthCamera",value="0",help="Attempts to reduce camera shake. Only applied if this client exposes the CVar."},
   {key="cameraKeepCharacterCentered",label="Keep character centered",cvar="CameraKeepCharacterCentered",value="1",help="Tries to use your character as a stable visual reference."},
   {key="cameraReduceUnexpectedMovement",label="Reduce unexpected camera movement",cvar="CameraReduceUnexpectedMovement",value="1",help="Limits camera movements not deliberately made by the player, if supported."},
   {key="motionSicknessFocalCircle",label="Client focal circle",cvar="motionSicknessFocalCircle",value="1",help="Uses a built-in focal circle if supported by the game client."},
   {key="motionSicknessLandscapeDarkening",label="Client landscape darkening",cvar="motionSicknessLandscapeDarkening",value="1",help="Enables built-in environmental edge shading if available."},
 }
 local originalCVars={}
+local cameraStatus={}
 local function applyCamera()
   if not config then return end
   for _,o in ipairs(cameraOptions) do
@@ -50,8 +51,12 @@ local function applyCamera()
     local use=config.enabled and config.camera.enabled and config.camera.settings[o.key]
     if use and now~=nil and now~="" then
       if originalCVars[o.cvar]==nil then originalCVars[o.cvar]=now end
-      safeCVarSet(o.cvar,o.value)
-    elseif originalCVars[o.cvar]~=nil then
+      local ok=safeCVarSet(o.cvar,o.value)
+      local after=safeCVarGet(o.cvar)
+      cameraStatus[o.key]=(ok and tostring(after)==o.value) and "Applied" or "Blocked by client"
+    elseif use then cameraStatus[o.key]="Unsupported / missing CVar"
+    else cameraStatus[o.key]="Disabled" end
+    if not use and originalCVars[o.cvar]~=nil then
       safeCVarSet(o.cvar,originalCVars[o.cvar]);originalCVars[o.cvar]=nil
     end
   end
@@ -59,6 +64,7 @@ end
 local dotLayer=CreateFrame("Frame","SteadyViewDotLayer",UIParent)
 dotLayer:SetAllPoints(UIParent);dotLayer:SetFrameStrata("HIGH");dotLayer:EnableMouse(false)
 local dotFrames={}
+local dotDragEnabled=false
 local focusLayer=CreateFrame("Frame",nil,UIParent);focusLayer:SetAllPoints(UIParent);focusLayer:SetFrameStrata("HIGH");focusLayer:EnableMouse(false)
 local focusElements={}
 local lineLayer=CreateFrame("Frame",nil,UIParent);lineLayer:SetAllPoints(UIParent);lineLayer:SetFrameStrata("HIGH");lineLayer:EnableMouse(false)
@@ -67,10 +73,10 @@ local vignetteLayer=CreateFrame("Frame",nil,UIParent);vignetteLayer:SetAllPoints
 local vignetteElements={}
 local function uiSize() return math.max(UIParent:GetWidth(),200),math.max(UIParent:GetHeight(),200) end
 local function intersects(x,y,z)
-  local w,h=uiSize()
   for _,rect in ipairs(config.dots.protected) do
     if x>=rect[1] and x<=rect[3] and y>=rect[2] and y<=rect[4] then return true end
   end
+  -- Protected UI rectangles only affect random placement; manually positioned dots stay wherever placed.
   -- Defaults: configurable protected zones supplement these sensible initial exclusions.
   if y<0.14 and x<0.34 then return true end
   if y<0.24 and x>0.75 then return true end
@@ -78,7 +84,7 @@ local function intersects(x,y,z)
   return false
 end
 local function acceptable(x,y)
-  local d=config.dots;local m=d.margin/100;local band=d.band/100
+  local d=config.dots;local m=clamp(d.margin/100,0,0.30);local band=clamp(d.band/100,m+0.01,0.49)
   if x<m or x>1-m or y<m or y>1-m or intersects(x,y) then return false end
   return (d.regions.top and y<=band) or (d.regions.bottom and y>=1-band) or (d.regions.left and x<=band) or (d.regions.right and x>=1-band)
 end
@@ -88,14 +94,14 @@ local function randomize()
   for i=1,n do
     local found=false
     for try=1,300 do
-      local x=math.random()*0.92+0.04;local y=math.random()*0.92+0.04
+      local x=math.random();local y=math.random()
       if acceptable(x,y) then
         local distant=true
         for _,p in ipairs(pts) do if (p.x-x)^2+(p.y-y)^2 < 0.0005 then distant=false;break end end
         if distant then pts[i]={x=x,y=y};found=true;break end
       end
     end
-    if not found then pts[i]={x=0.15+(i%7)*0.1,y=0.05+(math.floor(i/7)%2)*0.04} end
+    if not found then pts[i]={x=clamp(0.1+(i%7)*0.11,0.01,0.99),y=clamp((config.dots.margin+1)/100,0.01,0.99)} end
   end
   config.dots.points=pts
 end
@@ -113,23 +119,32 @@ local function refreshDots()
       f=CreateFrame("Frame",nil,dotLayer);f:SetFrameStrata("TOOLTIP")
       f.tex=makeTexture(f);f.tex:SetAllPoints(f)
       f:SetMovable(true);f:RegisterForDrag("LeftButton")
-      f:SetScript("OnDragStart",function(self) if editor and editor:IsShown() then self:StartMoving() end end)
+      f:SetScript("OnDragStart",function(self)
+        if dotDragEnabled then self:StartMoving() end
+      end)
       f:SetScript("OnDragStop",function(self)
         self:StopMovingOrSizing()
-        local cx,cy=self:GetCenter();local scale=UIParent:GetEffectiveScale()
-        if cx and cy then
-          -- Frame point positions share a coordinate space with UIParent.
-          p.x=clamp(cx/w,0.01,0.99);p.y=clamp(1-cy/h,0.01,0.99)
-          self:ClearAllPoints();self:SetPoint("CENTER",UIParent,"BOTTOMLEFT",p.x*w,(1-p.y)*h)
+        local cx,cy=self:GetCenter()
+        local point=config.dots.points[self.dotIndex]
+        local currentW,currentH=uiSize()
+        if point and cx and cy then
+          local parentLeft=UIParent:GetLeft() or 0
+          local parentBottom=UIParent:GetBottom() or 0
+          point.x=clamp((cx-parentLeft)/currentW,0.005,0.995)
+          point.y=clamp(1-(cy-parentBottom)/currentH,0.005,0.995)
+          self:ClearAllPoints()
+          self:SetPoint("CENTER",UIParent,"BOTTOMLEFT",point.x*currentW,(1-point.y)*currentH)
           save()
         end
       end)
       dotFrames[i]=f
     end
-    local size=d.size+(editor and editor:IsShown() and 10 or 0)
-    f:SetSize(size,size);f:ClearAllPoints();f:SetPoint("CENTER",UIParent,"BOTTOMLEFT",p.x*w,(1-p.y)*h)
+    f.dotIndex=i
+    local actualSize=clamp(d.size,2,100)
+    f:SetSize(actualSize,actualSize);f:ClearAllPoints()
+    f:SetPoint("CENTER",UIParent,"BOTTOMLEFT",p.x*w,(1-p.y)*h)
     f.tex:SetColorTexture(d.color[1],d.color[2],d.color[3],d.alpha)
-    f:EnableMouse(editor and editor:IsShown() or false)
+    f:EnableMouse(dotDragEnabled)
     f:Show()
   end
 end
@@ -254,12 +269,12 @@ local function makeWindow()
   textLine(p,"Stationary screen markers. Randomize them, drag each dot, then lock the layout.",16,-35,600)
   check(p,"Enable reference dots",12,-61,function() return config.dots.enabled end,function(v) config.dots.enabled=v end,"Dots are fixed to the screen, not the camera or world. They do not block clicks while locked.")
   slider(p,"Count",22,-108,1,40,1,function()return config.dots.count end,function(v) config.dots.count=v;config.dots.points={} end)
-  slider(p,"Size",22,-150,2,16,1,function()return config.dots.size end,function(v) config.dots.size=v end)
+  slider(p,"Size (pixels)",22,-150,2,100,1,function()return config.dots.size end,function(v) config.dots.size=v end)
   slider(p,"Opacity",22,-192,0.05,1,0.05,function()return config.dots.alpha end,function(v) config.dots.alpha=v end)
-  slider(p,"Edge band %",22,-234,5,40,1,function()return config.dots.band end,function(v) config.dots.band=v end)
-  slider(p,"Margin %",22,-276,1,15,1,function()return config.dots.margin end,function(v) config.dots.margin=v end)
+  slider(p,"Edge band %",22,-234,5,49,1,function()return config.dots.band end,function(v) config.dots.band=v;randomize() end)
+  slider(p,"Margin %",22,-276,0,30,1,function()return config.dots.margin end,function(v) config.dots.margin=v;randomize() end)
   local regions={{"Top","top"},{"Bottom","bottom"},{"Left","left"},{"Right","right"}}
-  for i,r in ipairs(regions) do check(p,r[1],365,-91-(i-1)*37,function()return config.dots.regions[r[2]] end,function(v)config.dots.regions[r[2]]=v end,"Allows random dots in this part of the screen.") end
+  for i,r in ipairs(regions) do check(p,r[1],365,-91-(i-1)*37,function()return config.dots.regions[r[2]] end,function(v)config.dots.regions[r[2]]=v;randomize() end,"Allows random dots in this part of the screen.") end
   button(p,"Randomize",365,-245,110,25,function() randomize();refreshAll() end)
   button(p,"Edit positions",485,-245,130,25,function() window:Hide();SV:OpenEditor() end)
   button(p,"White",365,-285,75,24,function()config.dots.color={1,1,1};refreshAll() end)
@@ -279,13 +294,17 @@ local function makeWindow()
   textLine(p,"Optional fixed reference lines and peripheral darkening. All strengths are adjustable.",16,-35,600)
   check(p,"Reference lines",12,-60,function()return config.lines.enabled end,function(v)config.lines.enabled=v end,"Static lines can act as orientation landmarks.")
   slider(p,"Line opacity",22,-107,0.05,1,0.05,function()return config.lines.alpha end,function(v)config.lines.alpha=v end)
-  slider(p,"Line thickness",22,-150,1,12,1,function()return config.lines.size end,function(v)config.lines.size=v end)
+  slider(p,"Line thickness",22,-150,1,120,1,function()return config.lines.size end,function(v)config.lines.size=v end)
+  slider(p,"Line inset %",22,-188,0,45,1,function()return config.lines.inset end,function(v)config.lines.inset=v end)
   button(p,"Sides",350,-105,78,25,function()config.lines.position="sides";refreshAll() end)
   button(p,"Top/bottom",432,-105,100,25,function()config.lines.position="topbottom";refreshAll() end)
   button(p,"All",537,-105,70,25,function()config.lines.position="all";refreshAll() end)
-  check(p,"Peripheral darkening",12,-198,function()return config.vignette.enabled end,function(v)config.vignette.enabled=v end,"Darkens screen edges to reduce peripheral visual flow. Can obscure objects near the edges.")
-  slider(p,"Darkening",22,-246,0.05,0.8,0.05,function()return config.vignette.alpha end,function(v)config.vignette.alpha=v end)
-  slider(p,"Edge width %",22,-289,5,40,1,function()return config.vignette.width end,function(v)config.vignette.width=v end)
+  check(p,"Peripheral darkening",12,-245,function()return config.vignette.enabled end,function(v)config.vignette.enabled=v end,"Darkens screen edges to reduce peripheral visual flow. Can obscure objects near the edges.")
+  slider(p,"Darkening",22,-287,0.05,0.8,0.05,function()return config.vignette.alpha end,function(v)config.vignette.alpha=v end)
+  slider(p,"Edge width %",350,-290,5,40,1,function()return config.vignette.width end,function(v)config.vignette.width=v end)
+  button(p,"White",350,-165,78,25,function()config.lines.color={1,1,1};refreshAll() end)
+  button(p,"Cyan",433,-165,78,25,function()config.lines.color={0.45,0.9,1};refreshAll() end)
+  button(p,"Amber",516,-165,88,25,function()config.lines.color={1,0.75,0.35};refreshAll() end)
   p=pages[4];title(p,"Movement Protection",-8)
   textLine(p,"Adds extra edge darkening while moving, or during mouse-look/turn events when detected.",16,-35,600)
   check(p,"Speed-based protection",12,-64,function()return config.movement.enabled end,function(v)config.movement.enabled=v end,"Uses available player speed data; no automatic action or camera manipulation.")
@@ -293,14 +312,17 @@ local function makeWindow()
   slider(p,"Extra darkening",22,-155,0.05,0.6,0.05,function()return config.movement.alpha end,function(v)config.movement.alpha=v end)
   check(p,"Turn/mouse-look protection",12,-208,function()return config.dynamic.enabled end,function(v)config.dynamic.enabled=v end,"Triggered only if the Forever client fires documented looking/turning events. Does not read actual camera rotation.")
   slider(p,"Turn protection",22,-254,0.05,0.6,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
-  textLine(p,"Note: these dynamic modes depend on live client support. Static tools work independently.",16,-334,610)
+  button(p,"Test darkening (5 sec)",22,-305,195,25,function() SV.testMotionUntil=(type(GetTime)=="function" and GetTime() or 0)+5;refreshVignette();report("Movement effect test started") end)
+  textLine(p,"Movement uses player speed; camera turning requires client events. Use /sv status for diagnostics.",16,-345,610)
   p=pages[5];title(p,"Camera Options (experimental)",-8)
   textLine(p,"Individual client CVars are used only if present. Previous values are restored when disabled.",16,-35,600)
   check(p,"Enable camera controls",12,-62,function()return config.camera.enabled end,function(v)config.camera.enabled=v end,"Enables only camera options that you explicitly select below.")
   for i,o in ipairs(cameraOptions) do
     check(p,o.label,18,-101-(i-1)*48,function()return not not config.camera.settings[o.key] end,function(v)config.camera.settings[o.key]=v end,o.help)
     local state=safeCVarGet(o.cvar)
-    textLine(p,(state~=nil and state~="") and "Available" or "Not detected on this client",390,-120-(i-1)*48,210)
+    local status=textLine(p,(state~=nil and state~="") and ("CVar: "..tostring(state)) or "Not detected",390,-120-(i-1)*48,210)
+    local optionKey=o.key;local optionCVar=o.cvar
+    status:SetScript("OnUpdate",function(self,dt) self.tick=(self.tick or 0)+dt;if self.tick>0.7 then self.tick=0;self:SetText(cameraStatus[optionKey] or ((safeCVarGet(optionCVar)~=nil) and "Detected" or "Unsupported")) end end)
   end
   textLine(p,"Unsupported settings are never forced. Check your WoW camera options too.",16,-365,610)
   p=pages[6];title(p,"Profiles and Backup",-8)
@@ -334,8 +356,8 @@ local function makeWindow()
     if #fields~=10 or fields[1]~="SV1" then report("Invalid backup code");return end
     local n1,n2,n3,n4,n5=tonumber(fields[2]),tonumber(fields[3]),tonumber(fields[4]),tonumber(fields[5]),tonumber(fields[6])
     if not(n1 and n2 and n3 and n4 and n5) then report("Invalid numeric settings");return end
-    config.dots.count=clamp(math.floor(n1),1,40);config.dots.size=clamp(n2,2,16);config.dots.alpha=clamp(n3,0.05,1)
-    config.dots.band=clamp(n4,5,40);config.dots.margin=clamp(n5,1,15)
+    config.dots.count=clamp(math.floor(n1),1,40);config.dots.size=clamp(n2,2,100);config.dots.alpha=clamp(n3,0.05,1)
+    config.dots.band=clamp(n4,5,49);config.dots.margin=clamp(n5,0,30)
     config.dots.enabled=fields[7]=="1";config.focus.enabled=fields[8]=="1";config.lines.enabled=fields[9]=="1";config.vignette.enabled=fields[10]=="1"
     config.dots.points={};refreshAll();report("Imported compact settings; reopen options to update sliders")
   end)
@@ -353,10 +375,10 @@ local function makeEditor()
   editor:SetSize(420,96);editor:SetPoint("TOP",UIParent,"TOP",0,-95);editor:SetFrameStrata("TOOLTIP")
   panel(editor)
   title(editor,"Dot Edit Mode",-8)
-  textLine(editor,"Drag dots on the game screen, then lock their positions.",12,-34,402)
-  button(editor,"Lock positions",12,-58,120,25,function()editor:Hide();refreshDots();save();report("Dot positions locked") end)
+  textLine(editor,"Drag dots anywhere on screen. Lock positions when done.",12,-34,402)
+  button(editor,"Lock positions",12,-58,120,25,function()dotDragEnabled=false;editor:Hide();refreshDots();save();report("Dot positions locked") end)
   button(editor,"Randomize",138,-58,95,25,function()randomize();refreshDots();save() end)
-  button(editor,"Settings",240,-58,83,25,function()editor:Hide();refreshDots();window:Show() end)
+  button(editor,"Settings",240,-58,83,25,function()dotDragEnabled=false;editor:Hide();refreshDots();window:Show() end)
   button(editor,"Clear zones",330,-58,82,25,function()config.dots.protected={};save();report("Custom protection zones cleared") end)
   editor:Hide()
 end
@@ -365,10 +387,13 @@ function SV:OpenEditor()
   if not config.dots.enabled then config.dots.enabled=true end
   if not config.enabled then config.enabled=true end
   if window then window:Hide() end
-  editor:Show();refreshDots()
+  dotDragEnabled=true;editor:Show();refreshDots()
 end
+local moving,turning,looking=false,false,false
 local function reportStatus()
-  report("enabled="..tostring(config.enabled).." | dots="..tostring(config.dots.enabled).." | focus="..tostring(config.focus.enabled).." | edges="..tostring(config.vignette.enabled))
+  local speed=0;if type(GetUnitSpeed)=="function" then local ok,v=pcall(GetUnitSpeed,"player");if ok then speed=v or 0 end end
+  report("dots="..tostring(config.dots.enabled).." | speed="..tostring(speed).." | threshold="..tostring(config.movement.threshold).." | moving="..tostring(moving).." | turning="..tostring(turning).." | looking="..tostring(looking))
+  for _,o in ipairs(cameraOptions) do report(o.label..": "..tostring(cameraStatus[o.key] or "Not tested")) end
 end
 SLASH_STEADYVIEW1="/steadyview";SLASH_STEADYVIEW2="/sv"
 SlashCmdList.STEADYVIEW=function(msg)
@@ -381,7 +406,6 @@ SlashCmdList.STEADYVIEW=function(msg)
   elseif msg=="status" then reportStatus()
   else if not window then makeWindow() end if window:IsShown() then window:Hide() else window:Show() end end
 end
-local moving,turning,looking=false,false,false
 local lastMotion,elapsed=0,0
 SV:SetScript("OnEvent",function(_,ev)
   if ev=="ADDON_LOADED" then return end
@@ -424,6 +448,8 @@ SV:SetScript("OnUpdate",function(_,dt)
   if elapsed<0.1 then return end
   elapsed=0
   local target=0
+  local now=type(GetTime)=="function" and GetTime() or 0
+  if config.enabled and SV.testMotionUntil and now<SV.testMotionUntil then target=0.6 end
   if config.enabled and config.movement.enabled then
     local speed=0
     if type(GetUnitSpeed)=="function" then local ok,s=pcall(GetUnitSpeed,"player");if ok and type(s)=="number" then speed=s end end
