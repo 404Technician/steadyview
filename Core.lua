@@ -118,15 +118,11 @@ local function refreshDots()
     local f=dotFrames[i]
     if not f then
       f=CreateFrame("Frame",nil,dotLayer);f:SetFrameStrata("TOOLTIP")
-      f.tex=f:CreateTexture(nil,"ARTWORK");f.tex:SetAllPoints(f);f.tex:SetTexture("Interface\\Buttons\\WHITE8X8")
-      if type(f.CreateMaskTexture)=="function" and type(f.tex.AddMaskTexture)=="function" then
-        local mask=f:CreateMaskTexture(nil,"MASK")
-        if mask and type(mask.SetTexture)=="function" then
-          mask:SetAllPoints(f.tex)
-          pcall(mask.SetTexture,mask,"Interface\\CharacterFrame\\TempPortraitAlphaMaskSmall","CLAMPTOBLACKADDITIVE","CLAMPTOBLACKADDITIVE")
-          pcall(f.tex.AddMaskTexture,f.tex,mask)
-          f.mask=mask
-        end
+      -- Use horizontal strips for a circular dot. Forever's CreateMaskTexture
+      -- signature differs between client builds, so do not use texture masks.
+      f.strips={}
+      for strip=1,25 do
+        f.strips[strip]=f:CreateTexture(nil,"ARTWORK")
       end
       f:SetMovable(true);f:RegisterForDrag("LeftButton")
       f:SetScript("OnDragStart",function(self)
@@ -153,7 +149,14 @@ local function refreshDots()
     local actualSize=clamp((d.size or 12)*(d.scale or 1),2,180)
     f:SetSize(actualSize,actualSize);f:ClearAllPoints()
     f:SetPoint("CENTER",UIParent,"BOTTOMLEFT",p.x*w,(1-p.y)*h)
-    f.tex:SetVertexColor(d.color[1],d.color[2],d.color[3],d.alpha)
+    for strip,t in ipairs(f.strips) do
+      local normalizedY=((strip-0.5)/25)*2-1
+      local fraction=math.sqrt(math.max(0,1-normalizedY*normalizedY))
+      t:ClearAllPoints()
+      t:SetPoint("CENTER",f,"CENTER",0,normalizedY*actualSize/2)
+      t:SetSize(actualSize*fraction,actualSize/25+0.12)
+      t:SetColorTexture(d.color[1],d.color[2],d.color[3],d.alpha)
+    end
     f:EnableMouse(dotDragEnabled)
     f:Show()
   end
