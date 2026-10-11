@@ -2,6 +2,6 @@
 ## Title: SteadyView - Motion Comfort Toolkit
 ## Notes: Modular visual reference and motion comfort aids for WoW: Forever
 ## Author: SteadyView contributors
-## Version: 0.1.1-beta
+## Version: 0.1.2-beta
 ## SavedVariables: SteadyViewDB
 Core.lua
