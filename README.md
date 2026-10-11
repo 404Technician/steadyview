@@ -1,6 +1,6 @@
 # SteadyView for WoW: Forever
 
-Version 0.1.3-beta.
+Version 0.1.4-beta.
 
 ## Installation
 Extract the SteadyView directory into the WoW: Forever Interface/AddOns directory. Enter `/steadyview` to open settings or `/steadyview edit` to edit dots.
@@ -22,3 +22,7 @@ Enter `/sv status` in chat to view speed and camera status. Restart WoW after re
 - Custom protected UI zones are not yet editable; only predefined exclusions are used for randomization.
 - Compact backup does not include all settings.
 - Visual comfort is individual; stop playing if symptoms develop.
+
+## 0.1.4 beta fix
+- Replace incompatible CreateMaskTexture calls with circular dot rendering made from horizontal strips.
+- Package the installable ZIP with a single lowercase `steadyview/` folder. GitHub source archives are not installation packages; use the release ZIP instead.
