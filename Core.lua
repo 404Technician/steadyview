@@ -400,11 +400,13 @@ local function makeWindow()
   local name=CreateFrame("EditBox",nil,p,"InputBoxTemplate");name:SetSize(175,25);name:SetPoint("TOPLEFT",p,"TOPLEFT",28,-70);name:SetAutoFocus(false);name:SetText(config.profile or "Default")
   textLine(p,"Name for saving:",22,-53,190)
   local selectedProfile=config.profiles[config.profile] and config.profile or nil
-  local profileDrop=button(p,"Choose saved profile  v",220,-70,205,25,function() end)
+  local profileDrop=button(p,"Select profile  v",220,-70,155,25,function() end)
   local popup=CreateFrame("Frame",nil,p,"BackdropTemplate")
-  popup:SetSize(205,242);popup:SetPoint("TOPLEFT",profileDrop,"BOTTOMLEFT",0,-2)
+  popup:SetSize(155,242);popup:SetPoint("TOPLEFT",profileDrop,"BOTTOMLEFT",0,-2)
   popup:SetFrameStrata("FULLSCREEN_DIALOG");popup:EnableMouse(true);panel(popup);popup:Hide()
   local offset=0
+  local pendingDelete=nil
+  local deleteButton=nil
   local options={}
   local function getProfileNames()
     local names={}
@@ -415,26 +417,30 @@ local function makeWindow()
   local function updateDrop()
     local names=getProfileNames()
     if selectedProfile and not config.profiles[selectedProfile] then selectedProfile=nil end
-    profileDrop:SetText((selectedProfile or "Choose saved profile").."  v")
+    local shown=selectedProfile or "Select profile"
+    if #shown>17 then shown=shown:sub(1,14).."..." end
+    profileDrop:SetText(shown.." v")
     offset=clamp(offset,0,math.max(0,#names-7))
     for i,b in ipairs(options) do
       local profileName=names[offset+i]
       if profileName then
-        b:SetText(profileName);b:Show()
+        local shownName=profileName
+        if #shownName>17 then shownName=shownName:sub(1,14).."..." end
+        b:SetText(shownName);b:Show()
         b:SetScript("OnClick",function()
-          selectedProfile=profileName;name:SetText(profileName);popup:Hide();updateDrop()
+          selectedProfile=profileName;pendingDelete=nil;if deleteButton then deleteButton:SetText("Delete selected") end;name:SetText(profileName);popup:Hide();updateDrop()
         end)
       else b:Hide() end
     end
   end
-  for i=1,7 do options[i]=button(popup,"",8,-8-(i-1)*29,189,26,function() end) end
-  local prev=button(popup,"Up",8,-213,92,23,function()offset=math.max(0,offset-7);updateDrop() end)
-  local nextPage=button(popup,"Down",105,-213,92,23,function()offset=offset+7;updateDrop() end)
+  for i=1,7 do options[i]=button(popup,"",8,-8-(i-1)*29,139,26,function() end) end
+  local prev=button(popup,"Up",8,-213,67,23,function()offset=math.max(0,offset-7);updateDrop() end)
+  local nextPage=button(popup,"Down",80,-213,67,23,function()offset=offset+7;updateDrop() end)
   profileDrop:SetScript("OnClick",function() if popup:IsShown() then popup:Hide() else updateDrop();popup:Show() end end)
-  button(p,"Save profile",435,-70,100,25,function()
+  button(p,"Save profile",390,-70,120,25,function()
     local n=name:GetText();if n=="" then report("Enter a profile name first");return end
     config.profile=n;config.profiles[n]={dots=copy(config.dots),focus=copy(config.focus),lines=copy(config.lines),vignette=copy(config.vignette),movement=copy(config.movement),dynamic=copy(config.dynamic),camera=copy(config.camera)}
-    selectedProfile=n;save();updateDrop();report("Saved profile: "..n)
+    selectedProfile=n;pendingDelete=nil;deleteButton:SetText("Delete selected");save();updateDrop();report("Saved profile: "..n)
   end)
   button(p,"Load selected",220,-103,125,25,function()
     local n=selectedProfile;local d=n and config.profiles[n]
@@ -444,7 +450,27 @@ local function makeWindow()
     popup:Hide();refreshAll();report("Loaded profile: "..n..". Reopen settings to refresh displayed controls.")
     window:Hide();window=nil;makeWindow();window:Show()
   end)
-  button(p,"Reset all",355,-103,100,25,function()
+  -- Destructive deletion requires a second explicit confirmation.
+  deleteButton=button(p,"Delete selected",355,-103,140,25,function()
+    local target=selectedProfile
+    if not target or type(config.profiles[target])~="table" then
+      pendingDelete=nil;deleteButton:SetText("Delete selected")
+      report("Choose a saved profile to delete first")
+      return
+    end
+    if pendingDelete~=target then
+      pendingDelete=target
+      deleteButton:SetText("Confirm delete?")
+      report("Click Confirm delete? again to permanently delete profile: "..target)
+      return
+    end
+    config.profiles[target]=nil
+    if config.profile==target then config.profile="Default" end
+    selectedProfile=nil;pendingDelete=nil;deleteButton:SetText("Delete selected")
+    popup:Hide();save();updateDrop()
+    report("Deleted profile: "..target)
+  end)
+  button(p,"Reset all",505,-103,100,25,function()
     for k,v in pairs(defaults) do if k~="profiles" then config[k]=copy(v) end end
     popup:Hide();refreshAll();report("Reset to defaults")
     window:Hide();window=nil;makeWindow();window:Show()
