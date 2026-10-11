@@ -6,7 +6,7 @@ local config, overlays, window, editor, widgets = nil, {}, nil, nil, {}
 local defaults = {
   enabled=true,
   dots={enabled=true,count=12,size=12,scale=1.00,alpha=0.65,color={1,1,1},regions={top=true,bottom=true,left=true,right=true},band=20,margin=4,mode="random-adjust",points={},protected={},},
-  focus={enabled=false,size=13,alpha=0.65,color={1,1,1},shape="ring",offsetX=0,offsetY=0},
+  focus={enabled=false,size=13,pointSize=3,alpha=0.65,color={1,1,1},shape="ring",offsetX=0,offsetY=0},
   lines={enabled=false,alpha=0.35,size=8,position="sides",edges={left=true,right=true,top=false,bottom=false},inset=12,color={1,1,1}},
   vignette={enabled=false,alpha=0.25,width=16},
   movement={enabled=false,threshold=1,alpha=0.30},
@@ -180,7 +180,8 @@ local function refreshFocus()
     local dx,dy
     if a.shape=="cross" then dx=({-1,1,0,0})[i]*a.size;dy=({0,0,-1,1})[i]*a.size else dx=math.cos(angle)*a.size;dy=math.sin(angle)*a.size end
     t:ClearAllPoints();t:SetPoint("CENTER",UIParent,"CENTER",x+dx,y+dy)
-    t:SetSize(3,3)
+    local pointSize=clamp(a.pointSize or 3,1,48)
+    t:SetSize(pointSize,pointSize)
     t:SetColorTexture(a.color[1],a.color[2],a.color[3],a.alpha);t:Show()
   end
 end
@@ -319,9 +320,10 @@ local function makeWindow()
   slider(p,"Opacity",23,-164,0.05,1,0.05,function()return config.focus.alpha end,function(v)config.focus.alpha=v end)
   slider(p,"Horizontal %",23,-209,-40,40,1,function()return config.focus.offsetX end,function(v)config.focus.offsetX=v end)
   slider(p,"Vertical %",23,-254,-40,40,1,function()return config.focus.offsetY end,function(v)config.focus.offsetY=v end)
-  button(p,"Circle",365,-117,110,25,function()config.focus.shape="ring";refreshAll() end)
-  button(p,"Cross",455,-117,75,25,function()config.focus.shape="cross";refreshAll() end)
-  button(p,"Dot",535,-117,75,25,function()config.focus.shape="dot";refreshAll() end)
+  slider(p,"Cross point size",23,-299,1,48,1,function()return config.focus.pointSize or 3 end,function(v)config.focus.pointSize=v end,"Controls the thickness of each of the four cross markers. Also affects circle marker thickness.")
+  button(p,"Circle",365,-117,76,25,function()config.focus.shape="ring";refreshAll() end)
+  button(p,"Cross",450,-117,76,25,function()config.focus.shape="cross";refreshAll() end)
+  button(p,"Dot",535,-117,76,25,function()config.focus.shape="dot";refreshAll() end)
   button(p,"White",365,-164,75,24,function()config.focus.color={1,1,1};refreshAll() end)
   button(p,"Cyan",444,-164,75,24,function()config.focus.color={0.45,0.9,1};refreshAll() end)
   button(p,"Amber",523,-164,86,24,function()config.focus.color={1,0.75,0.35};refreshAll() end)
@@ -349,7 +351,17 @@ local function makeWindow()
   slider(p,"Extra darkening",22,-155,0.05,1.6,0.05,function()return config.movement.alpha end,function(v)config.movement.alpha=v end)
   check(p,"Turn/mouse-look protection",12,-208,function()return config.dynamic.enabled end,function(v)config.dynamic.enabled=v end,"Triggered only if the Forever client fires documented looking/turning events. Does not read actual camera rotation.")
   slider(p,"Turn protection",22,-254,0.05,1.6,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
-  button(p,"Test darkening (5 sec)",22,-305,195,25,function() SV.testMotionUntil=(type(GetTime)=="function" and GetTime() or 0)+5;refreshVignette();report("Movement effect test started") end)
+  button(p,"Test darkening (5 sec)",22,-305,195,25,function()
+    -- Use the frame's elapsed time, not GetTime (which may be missing or restricted).
+    -- Preview the configured strengths even when movement detection is unavailable.
+    SV.testMotionRemaining=5
+    SV.testMotionLevel=math.max(config.movement.alpha or 0.3,config.dynamic.alpha or 0.3,1.2)
+    local testExcess=math.max(0,SV.testMotionLevel-1)
+    vignetteStrength=SV.testMotionLevel
+    motionBandExcess=testExcess
+    refreshVignette()
+    report("Movement darkening preview active for five seconds")
+  end)
   textLine(p,"Strength 1.6 is scaled to display opacity; camera turning requires client events. /sv status",16,-345,610)
   p=pages[5];title(p,"Camera Options (experimental)",-8)
   textLine(p,"Individual client CVars are used only if present. Previous values are restored when disabled.",16,-35,600)
@@ -492,8 +504,11 @@ SV:SetScript("OnUpdate",function(_,dt)
   elapsed=0
   local target=0
   local desiredBandExcess=0
-  local now=type(GetTime)=="function" and GetTime() or 0
-  if config.enabled and SV.testMotionUntil and now<SV.testMotionUntil then target=0.6 end
+  if (SV.testMotionRemaining or 0)>0 then
+    SV.testMotionRemaining=math.max(0,SV.testMotionRemaining-0.1)
+    target=SV.testMotionLevel or 1.2
+    desiredBandExcess=math.max(0,target-1)
+  end
   if config.enabled and config.movement.enabled then
     local speed=0
     local haveSpeed=false
