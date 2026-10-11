@@ -2,10 +2,10 @@
 
 **IMPORTANT — Installing from GitHub:** After downloading and extracting GitHub's source archive, manually rename the folder `steadyview-main` to **`steadyview`** (remove `-main`) before copying it into `Interface/AddOns/`. The separately packaged installation ZIP already contains the correct `steadyview` folder and needs no rename.
 
-Version 0.2.0-beta.
+Version 0.2.1-beta.
 
 ## Testing status
-The addon is tested in WoW: Forever by its user after each build. Version 0.2.0-beta is **awaiting user verification**; code review alone does not establish in-game compatibility.
+The addon is tested in WoW: Forever by its user after each build. Version 0.2.1-beta is **awaiting user verification**; code review alone does not establish in-game compatibility.
 
 ## Profiles in 0.2.0
 The Profiles tab now includes a dropdown listing saved profile names. Select an existing profile then choose **Load selected**. Saving a new profile updates the list immediately. Profiles are stored in `SteadyViewDB`.
@@ -43,3 +43,7 @@ Camera motion detection is client-dependent. This addon is experimental and is n
 
 ## 0.1.9 focus rendering
 Circle and Cross points now use Circle.tga, just like Dot.
+
+## Changes in 0.2.1 beta
+- Narrower saved-profile dropdown with trimmed long names.
+- Delete selected profile with two-click confirmation and SavedVariables persistence.
