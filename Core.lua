@@ -155,18 +155,32 @@ end
 local function square(layer,cache,i)
   if not cache[i] then cache[i]=makeTexture(layer) end return cache[i]
 end
+local focusDot
 local function refreshFocus()
   for _,t in ipairs(focusElements) do t:Hide() end
+  if focusDot then focusDot:Hide() end
   if not config or not config.enabled or not config.focus.enabled then return end
   local a=config.focus;local w,h=uiSize();local x=a.offsetX*w/100;local y=a.offsetY*h/100
-  local segs=a.shape=="cross" and 4 or 20
+  if a.shape=="dot" then
+    if not focusDot then
+      focusDot=focusLayer:CreateTexture(nil,"ARTWORK")
+      focusDot:SetTexture("Interface\\AddOns\\steadyview\\Circle.tga")
+    end
+    focusDot:ClearAllPoints()
+    focusDot:SetPoint("CENTER",UIParent,"CENTER",x,y)
+    focusDot:SetSize(clamp(a.size,2,120),clamp(a.size,2,120))
+    focusDot:SetVertexColor(a.color[1],a.color[2],a.color[3],a.alpha)
+    focusDot:Show()
+    return
+  end
+  local segs=a.shape=="cross" and 4 or 32
   for i=1,segs do
     local t=square(focusLayer,focusElements,i)
     local angle=(i-1)*2*math.pi/segs
     local dx,dy
     if a.shape=="cross" then dx=({-1,1,0,0})[i]*a.size;dy=({0,0,-1,1})[i]*a.size else dx=math.cos(angle)*a.size;dy=math.sin(angle)*a.size end
     t:ClearAllPoints();t:SetPoint("CENTER",UIParent,"CENTER",x+dx,y+dy)
-    t:SetSize(a.shape=="cross" and 3 or 3,a.shape=="cross" and 3 or 3)
+    t:SetSize(3,3)
     t:SetColorTexture(a.color[1],a.color[2],a.color[3],a.alpha);t:Show()
   end
 end
@@ -183,6 +197,7 @@ local function refreshLines()
   for i,v in ipairs(specs) do local t=square(lineLayer,lineElements,i);t:ClearAllPoints();t:SetPoint("CENTER",UIParent,"BOTTOMLEFT",v.x,v.y);t:SetSize(v.width,v.height);t:SetColorTexture(a.color[1],a.color[2],a.color[3],a.alpha);t:Show() end
 end
 local vignetteStrength=0
+local motionBandExcess=0
 local function refreshVignette()
   for _,t in ipairs(vignetteElements) do t:Hide() end
   if not config or not config.enabled then return end
@@ -191,7 +206,11 @@ local function refreshVignette()
   strength=clamp(strength,0,1.6)
   strength=1-math.exp(-strength*1.8)
   if strength<=0 then return end
-  local w,h=uiSize();local steps=16;local band=clamp(a.width,5,40)/100
+  local w,h=uiSize();local steps=24
+  -- Above strength 1.0, active motion protection increases the inward reach
+  -- rather than requesting an invalid alpha greater than 1.0.
+  local band=clamp(a.width,5,40)/100 + clamp(motionBandExcess,0,0.6)*0.40
+  band=clamp(band,0.05,0.65)
   -- Per-step strips form a low-overhead, stepped gradient around the image.
   for side=1,4 do for j=1,steps do
     local idx=(side-1)*steps+j;local t=square(vignetteLayer,vignetteElements,idx)
@@ -296,12 +315,13 @@ local function makeWindow()
   p=pages[2];title(p,"Static Focus Point",-8)
   textLine(p,"Provides a small, stationary central reference. You can adjust shape and position.",16,-36,600)
   check(p,"Enable focus marker",12,-64,function()return config.focus.enabled end,function(v)config.focus.enabled=v end,"A visual reference may help some players; others find it distracting.")
-  slider(p,"Size",23,-119,3,35,1,function()return config.focus.size end,function(v)config.focus.size=v end)
+  slider(p,"Size",23,-119,3,120,1,function()return config.focus.size end,function(v)config.focus.size=v end)
   slider(p,"Opacity",23,-164,0.05,1,0.05,function()return config.focus.alpha end,function(v)config.focus.alpha=v end)
   slider(p,"Horizontal %",23,-209,-40,40,1,function()return config.focus.offsetX end,function(v)config.focus.offsetX=v end)
   slider(p,"Vertical %",23,-254,-40,40,1,function()return config.focus.offsetY end,function(v)config.focus.offsetY=v end)
   button(p,"Circle",365,-117,110,25,function()config.focus.shape="ring";refreshAll() end)
-  button(p,"Cross",485,-117,110,25,function()config.focus.shape="cross";refreshAll() end)
+  button(p,"Cross",455,-117,75,25,function()config.focus.shape="cross";refreshAll() end)
+  button(p,"Dot",535,-117,75,25,function()config.focus.shape="dot";refreshAll() end)
   button(p,"White",365,-164,75,24,function()config.focus.color={1,1,1};refreshAll() end)
   button(p,"Cyan",444,-164,75,24,function()config.focus.color={0.45,0.9,1};refreshAll() end)
   button(p,"Amber",523,-164,86,24,function()config.focus.color={1,0.75,0.35};refreshAll() end)
@@ -471,18 +491,23 @@ SV:SetScript("OnUpdate",function(_,dt)
   if elapsed<0.1 then return end
   elapsed=0
   local target=0
+  local desiredBandExcess=0
   local now=type(GetTime)=="function" and GetTime() or 0
   if config.enabled and SV.testMotionUntil and now<SV.testMotionUntil then target=0.6 end
   if config.enabled and config.movement.enabled then
     local speed=0
     local haveSpeed=false
     if type(GetUnitSpeed)=="function" then local ok,s=pcall(GetUnitSpeed,"player");if ok and type(s)=="number" then speed=s;haveSpeed=true end end
-    if speed>=config.movement.threshold or (moving and (not haveSpeed or config.movement.threshold<=1)) then target=target+config.movement.alpha end
+    if speed>=config.movement.threshold or (moving and (not haveSpeed or config.movement.threshold<=1)) then target=target+config.movement.alpha;desiredBandExcess=math.max(desiredBandExcess,config.movement.alpha-1) end
   end
-  if config.enabled and config.dynamic.enabled and (turning or looking) then target=target+config.dynamic.alpha end
+  if config.enabled and config.dynamic.enabled and (turning or looking) then target=target+config.dynamic.alpha;desiredBandExcess=math.max(desiredBandExcess,config.dynamic.alpha-1) end
   target=clamp(target,0,1.6)
   local nextValue=vignetteStrength+(target-vignetteStrength)*clamp(0.1/math.max(config.dynamic.fade,0.1),0,1)
-  if math.abs(nextValue-vignetteStrength)>0.002 then vignetteStrength=nextValue;refreshVignette() end
+  local smoothing=clamp(0.1/math.max(config.dynamic.fade,0.1),0,1)
+  local nextBand=motionBandExcess+(desiredBandExcess-motionBandExcess)*smoothing
+  local changed=math.abs(nextValue-vignetteStrength)>0.002 or math.abs(nextBand-motionBandExcess)>0.002
+  vignetteStrength=nextValue;motionBandExcess=nextBand
+  if changed then refreshVignette() end
   SV._cameraTicker=(SV._cameraTicker or 0)+0.1
   if SV._cameraTicker>=0.5 then SV._cameraTicker=0; refreshCameraStatusTexts() end
 end)
