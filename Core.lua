@@ -5,7 +5,7 @@ local SV = CreateFrame("Frame", "SteadyViewController", UIParent)
 local config, overlays, window, editor, widgets = nil, {}, nil, nil, {}
 local defaults = {
   enabled=true,
-  dots={enabled=true,count=12,size=12,alpha=0.65,color={1,1,1},regions={top=true,bottom=true,left=true,right=true},band=20,margin=4,mode="random-adjust",points={},protected={},},
+  dots={enabled=true,count=12,size=12,scale=1.00,alpha=0.65,color={1,1,1},regions={top=true,bottom=true,left=true,right=true},band=20,margin=4,mode="random-adjust",points={},protected={},},
   focus={enabled=false,size=13,alpha=0.65,color={1,1,1},shape="ring",offsetX=0,offsetY=0},
   lines={enabled=false,alpha=0.35,size=8,position="sides",inset=12,color={1,1,1}},
   vignette={enabled=false,alpha=0.25,width=16},
@@ -44,6 +44,7 @@ local cameraOptions={
 }
 local originalCVars={}
 local cameraStatus={}
+local cameraStatusTexts={}
 local function applyCamera()
   if not config then return end
   for _,o in ipairs(cameraOptions) do
@@ -117,7 +118,16 @@ local function refreshDots()
     local f=dotFrames[i]
     if not f then
       f=CreateFrame("Frame",nil,dotLayer);f:SetFrameStrata("TOOLTIP")
-      f.tex=makeTexture(f);f.tex:SetAllPoints(f)
+      f.tex=f:CreateTexture(nil,"ARTWORK");f.tex:SetAllPoints(f);f.tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+      if type(f.CreateMaskTexture)=="function" and type(f.tex.AddMaskTexture)=="function" then
+        local mask=f:CreateMaskTexture(nil,"MASK")
+        if mask and type(mask.SetTexture)=="function" then
+          mask:SetAllPoints(f.tex)
+          pcall(mask.SetTexture,mask,"Interface\\CharacterFrame\\TempPortraitAlphaMaskSmall","CLAMPTOBLACKADDITIVE","CLAMPTOBLACKADDITIVE")
+          pcall(f.tex.AddMaskTexture,f.tex,mask)
+          f.mask=mask
+        end
+      end
       f:SetMovable(true);f:RegisterForDrag("LeftButton")
       f:SetScript("OnDragStart",function(self)
         if dotDragEnabled then self:StartMoving() end
@@ -140,10 +150,10 @@ local function refreshDots()
       dotFrames[i]=f
     end
     f.dotIndex=i
-    local actualSize=clamp(d.size,2,100)
+    local actualSize=clamp((d.size or 12)*(d.scale or 1),2,180)
     f:SetSize(actualSize,actualSize);f:ClearAllPoints()
     f:SetPoint("CENTER",UIParent,"BOTTOMLEFT",p.x*w,(1-p.y)*h)
-    f.tex:SetColorTexture(d.color[1],d.color[2],d.color[3],d.alpha)
+    f.tex:SetVertexColor(d.color[1],d.color[2],d.color[3],d.alpha)
     f:EnableMouse(dotDragEnabled)
     f:Show()
   end
@@ -205,9 +215,18 @@ local function refreshVignette()
     t:Show()
   end end
 end
+local function refreshCameraStatusTexts()
+  for key,label in pairs(cameraStatusTexts) do
+    if label and label.SetText then
+      local state=nil
+      for _,o in ipairs(cameraOptions) do if o.key==key then state=safeCVarGet(o.cvar); break end end
+      label:SetText(cameraStatus[key] or ((state~=nil and state~="") and ("Detected: "..tostring(state)) or "Unsupported"))
+    end
+  end
+end
 local function refreshAll()
   if not config then return end
-  refreshDots();refreshFocus();refreshLines();refreshVignette();applyCamera();save()
+  refreshDots();refreshFocus();refreshLines();refreshVignette();applyCamera();refreshCameraStatusTexts();save()
 end
 local function title(parent,txt,y)
   local f=parent:CreateFontString(nil,"OVERLAY","GameFontNormalLarge") f:SetPoint("TOPLEFT",parent,"TOPLEFT",15,y);f:SetText(txt);f:SetTextColor(0.90,0.78,0.38,1) return f
@@ -270,9 +289,10 @@ local function makeWindow()
   check(p,"Enable reference dots",12,-61,function() return config.dots.enabled end,function(v) config.dots.enabled=v end,"Dots are fixed to the screen, not the camera or world. They do not block clicks while locked.")
   slider(p,"Count",22,-108,1,40,1,function()return config.dots.count end,function(v) config.dots.count=v;config.dots.points={} end)
   slider(p,"Size (pixels)",22,-150,2,100,1,function()return config.dots.size end,function(v) config.dots.size=v end)
-  slider(p,"Opacity",22,-192,0.05,1,0.05,function()return config.dots.alpha end,function(v) config.dots.alpha=v end)
-  slider(p,"Edge band %",22,-234,5,49,1,function()return config.dots.band end,function(v) config.dots.band=v;randomize() end)
-  slider(p,"Margin %",22,-276,0,30,1,function()return config.dots.margin end,function(v) config.dots.margin=v;randomize() end)
+  slider(p,"Scale",22,-192,0.50,2.00,0.05,function()return config.dots.scale or 1 end,function(v) config.dots.scale=v end)
+  slider(p,"Opacity",22,-234,0.05,1,0.05,function()return config.dots.alpha end,function(v) config.dots.alpha=v end)
+  slider(p,"Edge band %",22,-276,5,49,1,function()return config.dots.band end,function(v) config.dots.band=v;randomize() end)
+  slider(p,"Margin %",22,-318,0,30,1,function()return config.dots.margin end,function(v) config.dots.margin=v;randomize() end)
   local regions={{"Top","top"},{"Bottom","bottom"},{"Left","left"},{"Right","right"}}
   for i,r in ipairs(regions) do check(p,r[1],365,-91-(i-1)*37,function()return config.dots.regions[r[2]] end,function(v)config.dots.regions[r[2]]=v;randomize() end,"Allows random dots in this part of the screen.") end
   button(p,"Randomize",365,-245,110,25,function() randomize();refreshAll() end)
@@ -290,6 +310,9 @@ local function makeWindow()
   slider(p,"Vertical %",23,-254,-40,40,1,function()return config.focus.offsetY end,function(v)config.focus.offsetY=v end)
   button(p,"Circle",365,-117,110,25,function()config.focus.shape="ring";refreshAll() end)
   button(p,"Cross",485,-117,110,25,function()config.focus.shape="cross";refreshAll() end)
+  button(p,"White",365,-164,75,24,function()config.focus.color={1,1,1};refreshAll() end)
+  button(p,"Cyan",444,-164,75,24,function()config.focus.color={0.45,0.9,1};refreshAll() end)
+  button(p,"Amber",523,-164,86,24,function()config.focus.color={1,0.75,0.35};refreshAll() end)
   p=pages[3];title(p,"Screen Edges",-8)
   textLine(p,"Optional fixed reference lines and peripheral darkening. All strengths are adjustable.",16,-35,600)
   check(p,"Reference lines",12,-60,function()return config.lines.enabled end,function(v)config.lines.enabled=v end,"Static lines can act as orientation landmarks.")
@@ -309,9 +332,9 @@ local function makeWindow()
   textLine(p,"Adds extra edge darkening while moving, or during mouse-look/turn events when detected.",16,-35,600)
   check(p,"Speed-based protection",12,-64,function()return config.movement.enabled end,function(v)config.movement.enabled=v end,"Uses available player speed data; no automatic action or camera manipulation.")
   slider(p,"Speed threshold",22,-110,1,20,1,function()return config.movement.threshold end,function(v)config.movement.threshold=v end)
-  slider(p,"Extra darkening",22,-155,0.05,0.6,0.05,function()return config.movement.alpha end,function(v)config.movement.alpha=v end)
+  slider(p,"Extra darkening",22,-155,0.05,0.8,0.05,function()return config.movement.alpha end,function(v)config.movement.alpha=v end)
   check(p,"Turn/mouse-look protection",12,-208,function()return config.dynamic.enabled end,function(v)config.dynamic.enabled=v end,"Triggered only if the Forever client fires documented looking/turning events. Does not read actual camera rotation.")
-  slider(p,"Turn protection",22,-254,0.05,0.6,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
+  slider(p,"Turn protection",22,-254,0.05,0.8,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
   button(p,"Test darkening (5 sec)",22,-305,195,25,function() SV.testMotionUntil=(type(GetTime)=="function" and GetTime() or 0)+5;refreshVignette();report("Movement effect test started") end)
   textLine(p,"Movement uses player speed; camera turning requires client events. Use /sv status for diagnostics.",16,-345,610)
   p=pages[5];title(p,"Camera Options (experimental)",-8)
@@ -321,8 +344,8 @@ local function makeWindow()
     check(p,o.label,18,-101-(i-1)*48,function()return not not config.camera.settings[o.key] end,function(v)config.camera.settings[o.key]=v end,o.help)
     local state=safeCVarGet(o.cvar)
     local status=textLine(p,(state~=nil and state~="") and ("CVar: "..tostring(state)) or "Not detected",390,-120-(i-1)*48,210)
-    local optionKey=o.key;local optionCVar=o.cvar
-    status:SetScript("OnUpdate",function(self,dt) self.tick=(self.tick or 0)+dt;if self.tick>0.7 then self.tick=0;self:SetText(cameraStatus[optionKey] or ((safeCVarGet(optionCVar)~=nil) and "Detected" or "Unsupported")) end end)
+    local optionKey=o.key
+    cameraStatusTexts[optionKey]=status
   end
   textLine(p,"Unsupported settings are never forced. Check your WoW camera options too.",16,-365,610)
   p=pages[6];title(p,"Profiles and Backup",-8)
@@ -392,7 +415,7 @@ end
 local moving,turning,looking=false,false,false
 local function reportStatus()
   local speed=0;if type(GetUnitSpeed)=="function" then local ok,v=pcall(GetUnitSpeed,"player");if ok then speed=v or 0 end end
-  report("dots="..tostring(config.dots.enabled).." | speed="..tostring(speed).." | threshold="..tostring(config.movement.threshold).." | moving="..tostring(moving).." | turning="..tostring(turning).." | looking="..tostring(looking))
+  report("dots="..tostring(config.dots.enabled).." | speed="..tostring(speed).." | threshold="..tostring(config.movement.threshold).." | moving="..tostring(moving).." | turning="..tostring(turning).." | looking="..tostring(looking).." | moveAlpha="..tostring(config.movement.alpha).." | turnAlpha="..tostring(config.dynamic.alpha))
   for _,o in ipairs(cameraOptions) do report(o.label..": "..tostring(cameraStatus[o.key] or "Not tested")) end
 end
 SLASH_STEADYVIEW1="/steadyview";SLASH_STEADYVIEW2="/sv"
@@ -452,11 +475,14 @@ SV:SetScript("OnUpdate",function(_,dt)
   if config.enabled and SV.testMotionUntil and now<SV.testMotionUntil then target=0.6 end
   if config.enabled and config.movement.enabled then
     local speed=0
-    if type(GetUnitSpeed)=="function" then local ok,s=pcall(GetUnitSpeed,"player");if ok and type(s)=="number" then speed=s end end
-    if speed>=config.movement.threshold then target=target+config.movement.alpha end
+    local haveSpeed=false
+    if type(GetUnitSpeed)=="function" then local ok,s=pcall(GetUnitSpeed,"player");if ok and type(s)=="number" then speed=s;haveSpeed=true end end
+    if speed>=config.movement.threshold or (moving and (not haveSpeed or config.movement.threshold<=1)) then target=target+config.movement.alpha end
   end
   if config.enabled and config.dynamic.enabled and (turning or looking) then target=target+config.dynamic.alpha end
   target=clamp(target,0,0.8)
   local nextValue=vignetteStrength+(target-vignetteStrength)*clamp(0.1/math.max(config.dynamic.fade,0.1),0,1)
   if math.abs(nextValue-vignetteStrength)>0.002 then vignetteStrength=nextValue;refreshVignette() end
+  SV._cameraTicker=(SV._cameraTicker or 0)+0.1
+  if SV._cameraTicker>=0.5 then SV._cameraTicker=0; refreshCameraStatusTexts() end
 end)
