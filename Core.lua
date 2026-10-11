@@ -7,7 +7,7 @@ local defaults = {
   enabled=true,
   dots={enabled=true,count=12,size=12,scale=1.00,alpha=0.65,color={1,1,1},regions={top=true,bottom=true,left=true,right=true},band=20,margin=4,mode="random-adjust",points={},protected={},},
   focus={enabled=false,size=13,alpha=0.65,color={1,1,1},shape="ring",offsetX=0,offsetY=0},
-  lines={enabled=false,alpha=0.35,size=8,position="sides",inset=12,color={1,1,1}},
+  lines={enabled=false,alpha=0.35,size=8,position="sides",edges={left=true,right=true,top=false,bottom=false},inset=12,color={1,1,1}},
   vignette={enabled=false,alpha=0.25,width=16},
   movement={enabled=false,threshold=1,alpha=0.30},
   dynamic={enabled=false,alpha=0.30,fade=0.25},
@@ -118,12 +118,10 @@ local function refreshDots()
     local f=dotFrames[i]
     if not f then
       f=CreateFrame("Frame",nil,dotLayer);f:SetFrameStrata("TOOLTIP")
-      -- Use horizontal strips for a circular dot. Forever's CreateMaskTexture
-      -- signature differs between client builds, so do not use texture masks.
-      f.strips={}
-      for strip=1,25 do
-        f.strips[strip]=f:CreateTexture(nil,"ARTWORK")
-      end
+      -- Anti-aliased transparent circle; no stripes and no client-dependent mask APIs.
+      f.circle=f:CreateTexture(nil,"ARTWORK")
+      f.circle:SetAllPoints(f)
+      f.circle:SetTexture("Interface\\AddOns\\steadyview\\Circle.tga")
       f:SetMovable(true);f:RegisterForDrag("LeftButton")
       f:SetScript("OnDragStart",function(self)
         if dotDragEnabled then self:StartMoving() end
@@ -149,14 +147,7 @@ local function refreshDots()
     local actualSize=clamp((d.size or 12)*(d.scale or 1),2,180)
     f:SetSize(actualSize,actualSize);f:ClearAllPoints()
     f:SetPoint("CENTER",UIParent,"BOTTOMLEFT",p.x*w,(1-p.y)*h)
-    for strip,t in ipairs(f.strips) do
-      local normalizedY=((strip-0.5)/25)*2-1
-      local fraction=math.sqrt(math.max(0,1-normalizedY*normalizedY))
-      t:ClearAllPoints()
-      t:SetPoint("CENTER",f,"CENTER",0,normalizedY*actualSize/2)
-      t:SetSize(actualSize*fraction,actualSize/25+0.12)
-      t:SetColorTexture(d.color[1],d.color[2],d.color[3],d.alpha)
-    end
+    f.circle:SetVertexColor(d.color[1],d.color[2],d.color[3],d.alpha)
     f:EnableMouse(dotDragEnabled)
     f:Show()
   end
@@ -184,14 +175,11 @@ local function refreshLines()
   if not config or not config.enabled or not config.lines.enabled then return end
   local a=config.lines; local w,h=uiSize();local p=a.inset/100
   local specs={}
-  if a.position=="sides" or a.position=="all" then
-    specs[#specs+1]={x=w*p,y=h/2,width=a.size,height=h*(1-2*p)}
-    specs[#specs+1]={x=w*(1-p),y=h/2,width=a.size,height=h*(1-2*p)}
-  end
-  if a.position=="topbottom" or a.position=="all" then
-    specs[#specs+1]={x=w/2,y=h*p,width=w*(1-2*p),height=a.size}
-    specs[#specs+1]={x=w/2,y=h*(1-p),width=w*(1-2*p),height=a.size}
-  end
+  local e=a.edges or {left=(a.position=="sides" or a.position=="all"),right=(a.position=="sides" or a.position=="all"),top=(a.position=="topbottom" or a.position=="all"),bottom=(a.position=="topbottom" or a.position=="all")}
+  if e.left then specs[#specs+1]={x=w*p,y=h/2,width=a.size,height=h*(1-2*p)} end
+  if e.right then specs[#specs+1]={x=w*(1-p),y=h/2,width=a.size,height=h*(1-2*p)} end
+  if e.top then specs[#specs+1]={x=w/2,y=h*(1-p),width=w*(1-2*p),height=a.size} end
+  if e.bottom then specs[#specs+1]={x=w/2,y=h*p,width=w*(1-2*p),height=a.size} end
   for i,v in ipairs(specs) do local t=square(lineLayer,lineElements,i);t:ClearAllPoints();t:SetPoint("CENTER",UIParent,"BOTTOMLEFT",v.x,v.y);t:SetSize(v.width,v.height);t:SetColorTexture(a.color[1],a.color[2],a.color[3],a.alpha);t:Show() end
 end
 local vignetteStrength=0
@@ -200,7 +188,8 @@ local function refreshVignette()
   if not config or not config.enabled then return end
   local a=config.vignette
   local strength=(a.enabled and a.alpha or 0)+vignetteStrength
-  strength=clamp(strength,0,0.85)
+  strength=clamp(strength,0,1.6)
+  strength=1-math.exp(-strength*1.8)
   if strength<=0 then return end
   local w,h=uiSize();local steps=16;local band=clamp(a.width,5,40)/100
   -- Per-step strips form a low-overhead, stepped gradient around the image.
@@ -322,24 +311,26 @@ local function makeWindow()
   slider(p,"Line opacity",22,-107,0.05,1,0.05,function()return config.lines.alpha end,function(v)config.lines.alpha=v end)
   slider(p,"Line thickness",22,-150,1,120,1,function()return config.lines.size end,function(v)config.lines.size=v end)
   slider(p,"Line inset %",22,-188,0,45,1,function()return config.lines.inset end,function(v)config.lines.inset=v end)
-  button(p,"Sides",350,-105,78,25,function()config.lines.position="sides";refreshAll() end)
-  button(p,"Top/bottom",432,-105,100,25,function()config.lines.position="topbottom";refreshAll() end)
-  button(p,"All",537,-105,70,25,function()config.lines.position="all";refreshAll() end)
+  textLine(p,"Individual reference bars",353,-88,250)
+  check(p,"Left bar",350,-110,function()return config.lines.edges.left end,function(v)config.lines.edges.left=v end)
+  check(p,"Right bar",480,-110,function()return config.lines.edges.right end,function(v)config.lines.edges.right=v end)
+  check(p,"Top bar",350,-144,function()return config.lines.edges.top end,function(v)config.lines.edges.top=v end)
+  check(p,"Bottom bar",480,-144,function()return config.lines.edges.bottom end,function(v)config.lines.edges.bottom=v end)
   check(p,"Peripheral darkening",12,-245,function()return config.vignette.enabled end,function(v)config.vignette.enabled=v end,"Darkens screen edges to reduce peripheral visual flow. Can obscure objects near the edges.")
   slider(p,"Darkening",22,-287,0.05,0.8,0.05,function()return config.vignette.alpha end,function(v)config.vignette.alpha=v end)
   slider(p,"Edge width %",350,-290,5,40,1,function()return config.vignette.width end,function(v)config.vignette.width=v end)
-  button(p,"White",350,-165,78,25,function()config.lines.color={1,1,1};refreshAll() end)
-  button(p,"Cyan",433,-165,78,25,function()config.lines.color={0.45,0.9,1};refreshAll() end)
-  button(p,"Amber",516,-165,88,25,function()config.lines.color={1,0.75,0.35};refreshAll() end)
+  button(p,"White",350,-195,78,25,function()config.lines.color={1,1,1};refreshAll() end)
+  button(p,"Cyan",433,-195,78,25,function()config.lines.color={0.45,0.9,1};refreshAll() end)
+  button(p,"Amber",516,-195,88,25,function()config.lines.color={1,0.75,0.35};refreshAll() end)
   p=pages[4];title(p,"Movement Protection",-8)
   textLine(p,"Adds extra edge darkening while moving, or during mouse-look/turn events when detected.",16,-35,600)
   check(p,"Speed-based protection",12,-64,function()return config.movement.enabled end,function(v)config.movement.enabled=v end,"Uses available player speed data; no automatic action or camera manipulation.")
   slider(p,"Speed threshold",22,-110,1,20,1,function()return config.movement.threshold end,function(v)config.movement.threshold=v end)
-  slider(p,"Extra darkening",22,-155,0.05,0.8,0.05,function()return config.movement.alpha end,function(v)config.movement.alpha=v end)
+  slider(p,"Extra darkening",22,-155,0.05,1.6,0.05,function()return config.movement.alpha end,function(v)config.movement.alpha=v end)
   check(p,"Turn/mouse-look protection",12,-208,function()return config.dynamic.enabled end,function(v)config.dynamic.enabled=v end,"Triggered only if the Forever client fires documented looking/turning events. Does not read actual camera rotation.")
-  slider(p,"Turn protection",22,-254,0.05,0.8,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
+  slider(p,"Turn protection",22,-254,0.05,1.6,0.05,function()return config.dynamic.alpha end,function(v)config.dynamic.alpha=v end)
   button(p,"Test darkening (5 sec)",22,-305,195,25,function() SV.testMotionUntil=(type(GetTime)=="function" and GetTime() or 0)+5;refreshVignette();report("Movement effect test started") end)
-  textLine(p,"Movement uses player speed; camera turning requires client events. Use /sv status for diagnostics.",16,-345,610)
+  textLine(p,"Strength 1.6 is scaled to display opacity; camera turning requires client events. /sv status",16,-345,610)
   p=pages[5];title(p,"Camera Options (experimental)",-8)
   textLine(p,"Individual client CVars are used only if present. Previous values are restored when disabled.",16,-35,600)
   check(p,"Enable camera controls",12,-62,function()return config.camera.enabled end,function(v)config.camera.enabled=v end,"Enables only camera options that you explicitly select below.")
@@ -360,7 +351,9 @@ local function makeWindow()
   end)
   button(p,"Load profile",330,-77,105,25,function()
     local n=name:GetText();local d=config.profiles[n];if not d then report("Profile not found: "..n);return end
-    for k,v in pairs(d) do config[k]=copy(v) end;config.profile=n;refreshAll();report("Loaded profile: "..n.." (reopen options to update displayed sliders)")
+    for k,v in pairs(d) do config[k]=copy(v) end;config.profile=n;
+    if type(config.lines.edges)~="table" then config.lines.edges=copy(defaults.lines.edges) end
+    refreshAll();report("Loaded profile: "..n.." (reopen options to update displayed sliders)")
   end)
   button(p,"Reset all",440,-77,105,25,function()for k,v in pairs(defaults) do if k~="profiles" then config[k]=copy(v) end end;refreshAll();report("Reset to defaults") end)
   local backup=CreateFrame("EditBox",nil,p,"InputBoxTemplate");backup:SetSize(580,25);backup:SetPoint("TOPLEFT",p,"TOPLEFT",30,-153);backup:SetAutoFocus(false)
@@ -438,6 +431,10 @@ SV:SetScript("OnEvent",function(_,ev)
   if ev=="PLAYER_LOGIN" then
     if type(SteadyViewDB)~="table" then SteadyViewDB=copy(defaults) end
     config=merge(defaults,SteadyViewDB)
+    if not (type(SteadyViewDB.lines)=="table" and type(SteadyViewDB.lines.edges)=="table") then
+      local pos=config.lines.position
+      config.lines.edges={left=(pos=="sides" or pos=="all"),right=(pos=="sides" or pos=="all"),top=(pos=="topbottom" or pos=="all"),bottom=(pos=="topbottom" or pos=="all")}
+    end
     -- Some Forever clients do not expose Lua math.randomseed. Never abort loading.
     if type(math.randomseed)=="function" then
       local seed=731
@@ -483,7 +480,7 @@ SV:SetScript("OnUpdate",function(_,dt)
     if speed>=config.movement.threshold or (moving and (not haveSpeed or config.movement.threshold<=1)) then target=target+config.movement.alpha end
   end
   if config.enabled and config.dynamic.enabled and (turning or looking) then target=target+config.dynamic.alpha end
-  target=clamp(target,0,0.8)
+  target=clamp(target,0,1.6)
   local nextValue=vignetteStrength+(target-vignetteStrength)*clamp(0.1/math.max(config.dynamic.fade,0.1),0,1)
   if math.abs(nextValue-vignetteStrength)>0.002 then vignetteStrength=nextValue;refreshVignette() end
   SV._cameraTicker=(SV._cameraTicker or 0)+0.1
