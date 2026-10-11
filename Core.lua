@@ -175,14 +175,19 @@ local function refreshFocus()
   end
   local segs=a.shape=="cross" and 4 or 32
   for i=1,segs do
-    local t=square(focusLayer,focusElements,i)
+    local t=focusElements[i]
+    if not t then
+      t=focusLayer:CreateTexture(nil,"ARTWORK")
+      t:SetTexture("Interface\\AddOns\\steadyview\\Circle.tga")
+      focusElements[i]=t
+    end
     local angle=(i-1)*2*math.pi/segs
     local dx,dy
     if a.shape=="cross" then dx=({-1,1,0,0})[i]*a.size;dy=({0,0,-1,1})[i]*a.size else dx=math.cos(angle)*a.size;dy=math.sin(angle)*a.size end
     t:ClearAllPoints();t:SetPoint("CENTER",UIParent,"CENTER",x+dx,y+dy)
     local pointSize=clamp(a.pointSize or 3,1,48)
     t:SetSize(pointSize,pointSize)
-    t:SetColorTexture(a.color[1],a.color[2],a.color[3],a.alpha);t:Show()
+    t:SetVertexColor(a.color[1],a.color[2],a.color[3],a.alpha);t:Show()
   end
 end
 local function refreshLines()
